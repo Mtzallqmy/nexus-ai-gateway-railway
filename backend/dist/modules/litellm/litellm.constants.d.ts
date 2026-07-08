@@ -1,0 +1,90 @@
+export declare const LITELLM_ENDPOINTS: {
+    readonly HEALTH_LIVENESS: "/health/liveness";
+    readonly HEALTH_READINESS: "/health/readiness";
+    readonly HEALTH_FULL: "/health";
+    readonly VERSION: "/version";
+    readonly MODELS: "/v1/models";
+    readonly CHAT_COMPLETIONS: "/v1/chat/completions";
+    readonly COMPLETIONS: "/v1/completions";
+    readonly EMBEDDINGS: "/v1/embeddings";
+    readonly KEY_GENERATE: "/key/generate";
+    readonly KEY_LIST: "/key/list";
+    readonly KEY_INFO: "/key/info";
+    readonly RELOAD: "/admin/endpoints";
+    readonly CACHE_FLUSH: "/cache/purge";
+    readonly MODEL_INFO: "/v1/models/info";
+    readonly MODEL_GROUP_INFO: "/model_group/info";
+};
+export declare const LITELLM_HEADERS: {
+    readonly AUTHORIZATION: "Authorization";
+    readonly API_KEY: "X-Litellm-Api-Key";
+    readonly CONTENT_TYPE: "Content-Type";
+    readonly ACCEPT: "Accept";
+    readonly USER_AGENT: "User-Agent";
+    readonly REQUEST_ID: "X-Request-Id";
+};
+export declare const LITELLM_CACHE_KEYS: {
+    readonly MODELS: "litellm:models";
+    readonly MODEL: (id: string) => string;
+    readonly PROVIDERS: "litellm:providers";
+    readonly PROVIDER: (id: string) => string;
+    readonly HEALTH: "litellm:health";
+    readonly HEALTH_PROVIDER: (id: string) => string;
+    readonly VERSION: "litellm:version";
+    readonly METRICS: "litellm:metrics";
+    readonly STATUS: "litellm:status";
+    readonly CONFIG: "litellm:config";
+};
+export declare const LITELLM_QUEUES: {
+    readonly SYNC: "litellm-sync";
+    readonly HEALTH_CHECK: "litellm-health-check";
+    readonly METRICS: "litellm-metrics";
+    readonly CALLBACK: "litellm-callback";
+};
+export declare const LITELLM_JOBS: {
+    readonly SYNC_PROVIDERS: "sync-providers";
+    readonly SYNC_MODELS: "sync-models";
+    readonly SYNC_CAPABILITIES: "sync-capabilities";
+    readonly SYNC_METADATA: "sync-metadata";
+    readonly SYNC_VERSIONS: "sync-versions";
+    readonly SYNC_ALL: "sync-all";
+    readonly HEALTH_CHECK: "health-check";
+    readonly COLLECT_METRICS: "collect-metrics";
+    readonly PROCESS_CALLBACK: "process-callback";
+};
+export declare const LITELLM_DEFAULTS: {
+    readonly REQUEST_TIMEOUT_MS: 30000;
+    readonly STREAM_TIMEOUT_MS: 60000;
+    readonly HEALTH_CHECK_INTERVAL_MS: 30000;
+    readonly SYNC_INTERVAL_MS: number;
+    readonly CACHE_TTL_SECONDS: 300;
+    readonly RETRY_ATTEMPTS: 3;
+    readonly RETRY_BASE_DELAY_MS: 500;
+    readonly RETRY_MAX_DELAY_MS: 5000;
+    readonly CIRCUIT_BREAKER_FAILURE_THRESHOLD: 5;
+    readonly CIRCUIT_BREAKER_RESET_TIMEOUT_MS: 60000;
+    readonly POOL_MAX_CONNECTIONS: 50;
+    readonly POOL_KEEP_ALIVE_MS: 30000;
+};
+export declare const LITELLM_TOKENS: {
+    readonly CONFIG: "LITELLM_CONFIG";
+    readonly CLIENT: "LITELLM_CLIENT";
+    readonly REPOSITORY: "LITELLM_REPOSITORY";
+    readonly CACHE: "LITELLM_CACHE";
+    readonly LOGGER: "LITELLM_LOGGER";
+};
+export declare const LITELLM_LOG_CONTEXTS: {
+    readonly CLIENT: "LiteLLMClient";
+    readonly SERVICE: "LiteLLMService";
+    readonly CONTROLLER: "LiteLLMController";
+    readonly REPOSITORY: "LiteLLMRepository";
+    readonly ROUTER: "LiteLLMRouter";
+    readonly PARSER: "LiteLLMParser";
+    readonly STREAM: "LiteLLMStream";
+    readonly HEALTH: "LiteLLMHealth";
+    readonly METRICS: "LiteLLMMetrics";
+    readonly SYNC: "LiteLLMSync";
+    readonly CACHE: "LiteLLMCache";
+    readonly CIRCUIT: "LiteLLMCircuitBreaker";
+    readonly POOL: "LiteLLMConnectionPool";
+};

@@ -1,0 +1,97 @@
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import type { CreateUserDto, ListUsersQueryDto, UpdateUserDto } from "./dto/user.dto";
+export declare class UsersService {
+    private readonly prisma;
+    private readonly logger;
+    constructor(prisma: PrismaService);
+    create(dto: CreateUserDto): Promise<{
+        [x: string]: unknown;
+    }>;
+    findAll(query: ListUsersQueryDto): Promise<import("../../common/dto/pagination.dto").PaginatedResponse<{
+        name: string;
+        id: string;
+        email: string;
+        status: import(".prisma/client").$Enums.UserStatus;
+        avatarUrl: string | null;
+        emailVerified: import(".prisma/client").$Enums.EmailVerificationStatus;
+        jobTitle: string | null;
+        location: string | null;
+        bio: string | null;
+        website: string | null;
+        twoFactorStatus: import(".prisma/client").$Enums.TwoFactorStatus;
+        lastLoginAt: Date | null;
+        lastActiveAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>>;
+    findOne(id: string): Promise<{
+        name: string;
+        id: string;
+        email: string;
+        status: import(".prisma/client").$Enums.UserStatus;
+        avatarUrl: string | null;
+        emailVerified: import(".prisma/client").$Enums.EmailVerificationStatus;
+        jobTitle: string | null;
+        location: string | null;
+        bio: string | null;
+        website: string | null;
+        twoFactorStatus: import(".prisma/client").$Enums.TwoFactorStatus;
+        lastLoginAt: Date | null;
+        lastActiveAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    findByEmail(email: string): Promise<{
+        name: string;
+        id: string;
+        email: string;
+        status: import(".prisma/client").$Enums.UserStatus;
+        avatarUrl: string | null;
+        emailVerified: import(".prisma/client").$Enums.EmailVerificationStatus;
+        emailNormalized: string;
+        emailVerifyToken: string | null;
+        passwordResetToken: string | null;
+        passwordHash: string | null;
+        jobTitle: string | null;
+        location: string | null;
+        bio: string | null;
+        website: string | null;
+        emailVerifiedAt: Date | null;
+        emailVerifyExpires: Date | null;
+        passwordResetExpires: Date | null;
+        twoFactorStatus: import(".prisma/client").$Enums.TwoFactorStatus;
+        twoFactorSecret: string | null;
+        twoFactorBackupCodes: string[];
+        lastLoginAt: Date | null;
+        lastActiveAt: Date | null;
+        failedLoginAttempts: number;
+        lockedUntil: Date | null;
+        preferences: Prisma.JsonValue;
+        createdAt: Date;
+        updatedAt: Date;
+        deletedAt: Date | null;
+    } | null>;
+    update(id: string, dto: UpdateUserDto): Promise<{
+        name: string;
+        id: string;
+        email: string;
+        status: import(".prisma/client").$Enums.UserStatus;
+        avatarUrl: string | null;
+        emailVerified: import(".prisma/client").$Enums.EmailVerificationStatus;
+        jobTitle: string | null;
+        location: string | null;
+        bio: string | null;
+        website: string | null;
+        twoFactorStatus: import(".prisma/client").$Enums.TwoFactorStatus;
+        lastLoginAt: Date | null;
+        lastActiveAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    remove(id: string): Promise<{
+        message: string;
+    }>;
+    private selectFields;
+    private sanitize;
+}

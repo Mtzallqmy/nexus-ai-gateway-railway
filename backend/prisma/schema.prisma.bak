@@ -1,0 +1,1652 @@
+// Moataz AI Gateway — Prisma Schema (Phase 2)
+// Database: PostgreSQL (Supabase-compatible)
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../node_modules/.prisma/client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum EmailVerificationStatus {
+  VERIFIED
+  UNVERIFIED
+  PENDING
+}
+
+enum TwoFactorStatus {
+  DISABLED
+  ENABLED
+  PENDING
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum TeamStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  EXPORT
+  IMPORT
+  PERMISSION_CHANGE
+  ROLE_CHANGE
+  SYSTEM
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+  WEBHOOK
+}
+
+enum HealthStatus {
+  HEALTHY
+  DEGRADED
+  DOWN
+  MAINTENANCE
+}
+
+enum ConfigType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+}
+
+// ============================================================
+// USERS
+// ============================================================
+
+model User {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  email               String                  @unique
+  emailNormalized     String                  @unique
+  passwordHash        String?
+  name                String
+  avatarUrl           String?
+  jobTitle            String?
+  location            String?
+  bio                 String?                 @db.Text
+  website             String?
+  status              UserStatus              @default(PENDING)
+  emailVerified       EmailVerificationStatus @default(UNVERIFIED)
+  emailVerifiedAt     DateTime?
+  emailVerifyToken    String?                 @unique
+  emailVerifyExpires  DateTime?
+  passwordResetToken  String?                 @unique
+  passwordResetExpires DateTime?
+  twoFactorStatus     TwoFactorStatus         @default(DISABLED)
+  twoFactorSecret     String?
+  twoFactorBackupCodes String[]               @default([])
+  lastLoginAt         DateTime?
+  lastActiveAt        DateTime?
+  failedLoginAttempts Int                     @default(0)
+  lockedUntil         DateTime?
+  preferences         Json                    @default("{}")
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  deletedAt           DateTime?
+
+  memberships       Membership[]
+  sessions          Session[]
+  apiKeys           ApiKey[]
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  userPermissions   UserPermission[]
+  ownedOrgs         Organization[]           @relation("OrgOwner")
+  ownedTeams        Team[]                   @relation("TeamOwner")
+  ownedProjects     Project[]                @relation("ProjectOwner")
+  createdSettings   Setting[]                @relation("SettingCreator")
+  refreshTokens     RefreshToken[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+// ============================================================
+// ORGANIZATIONS
+// ============================================================
+
+model Organization {
+  id          String             @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String             @unique
+  description String?            @db.Text
+  logoUrl     String?
+  status      OrganizationStatus @default(ACTIVE)
+  ownerId     String             @db.Uuid
+  owner       User               @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  plan        String             @default("free")
+  orgSettings Json               @default("{}")
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  deletedAt   DateTime?
+
+  teams       Team[]
+  projects    Project[]
+  memberships Membership[]
+  apiKeys     ApiKey[]
+  auditLogs   AuditLog[]
+  settings    Setting[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@map("organizations")
+}
+
+// ============================================================
+// TEAMS
+// ============================================================
+
+model Team {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String
+  description    String?      @db.Text
+  status         TeamStatus   @default(ACTIVE)
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerId        String       @db.Uuid
+  owner          User         @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  memberships Membership[]
+  projects    Project[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("teams")
+}
+
+// ============================================================
+// MEMBERSHIPS (User ↔ Organization/Team)
+// ============================================================
+
+model Membership {
+  id             String         @id @default(uuid()) @db.Uuid
+  userId         String         @db.Uuid
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String         @db.Uuid
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teamId         String?        @db.Uuid
+  team           Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  role           MembershipRole @default(MEMBER)
+  invitedBy      String?        @db.Uuid
+  invitedAt      DateTime       @default(now())
+  acceptedAt     DateTime?
+  status         String         @default("pending")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([userId, organizationId, teamId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([teamId])
+  @@map("memberships")
+}
+
+// ============================================================
+// PROJECTS
+// ============================================================
+
+model Project {
+  id             String        @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String
+  description    String?       @db.Text
+  status         ProjectStatus @default(ACTIVE)
+  organizationId String        @db.Uuid
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teamId         String?       @db.Uuid
+  team           Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ownerId        String        @db.Uuid
+  owner          User          @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  metadata       Json          @default("{}")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  apiKeys   ApiKey[]
+  auditLogs AuditLog[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([teamId])
+  @@map("projects")
+}
+
+// ============================================================
+// ROLES (RBAC)
+// ============================================================
+
+model Role {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String
+  description    String?  @db.Text
+  isSystem       Boolean  @default(false)
+  isDefault      Boolean  @default(false)
+  organizationId String?  @db.Uuid
+  color          String?
+  permissions    Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  rolePermissions RolePermission[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+// ============================================================
+// PERMISSIONS
+// ============================================================
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  slug        String   @unique
+  description String?  @db.Text
+  resource    String
+  actions     String[]
+  group       String
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@index([resource])
+  @@index([group])
+  @@map("permissions")
+}
+
+// ============================================================
+// ROLE ↔ PERMISSION (M2M)
+// ============================================================
+
+model RolePermission {
+  id           String     @id @default(uuid()) @db.Uuid
+  roleId       String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String     @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  conditions   Json       @default("{}")
+  createdAt    DateTime   @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ============================================================
+// USER ↔ PERMISSION (Direct grants / overrides)
+// ============================================================
+
+model UserPermission {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @db.Uuid
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String     @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  granted      Boolean    @default(true)
+  conditions   Json       @default("{}")
+  createdAt    DateTime   @default(now())
+  createdBy    String?    @db.Uuid
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@map("user_permissions")
+}
+
+// ============================================================
+// API KEYS
+// ============================================================
+
+model ApiKey {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  keyPrefix      String
+  keyHash        String       @unique
+  maskedKey      String
+  status         ApiKeyStatus @default(ACTIVE)
+  scopes         String[]     @default([])
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String?      @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId      String?      @db.Uuid
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  usageLimit     BigInt?      @db.BigInt
+  usageCount     BigInt       @default(0) @db.BigInt
+  rateLimitRps   Int?
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  revokedReason  String?
+  createdBy      String       @db.Uuid
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([status])
+  @@map("api_keys")
+}
+
+// ============================================================
+// AUDIT LOGS
+// ============================================================
+
+model AuditLog {
+  id             String        @id @default(uuid()) @db.Uuid
+  actorId        String?       @db.Uuid
+  actor          User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail     String
+  action         AuditAction
+  status         AuditStatus
+  resource       String
+  resourceId     String?
+  resourceName   String?
+  organizationId String?       @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId      String?       @db.Uuid
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ipAddress      String?
+  userAgent      String?
+  location       String?
+  metadata       Json          @default("{}")
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([resource])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// SESSIONS
+// ============================================================
+
+model Session {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          SessionStatus @default(ACTIVE)
+  tokenHash       String        @unique
+  refreshTokenHash String?      @unique
+  ipAddress       String?
+  userAgent       String?
+  deviceName      String?
+  location        String?
+  expiresAt       DateTime
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  revokedReason   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("sessions")
+}
+
+// ============================================================
+// REFRESH TOKENS
+// ============================================================
+
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  familyId     String    @db.Uuid
+  expiresAt    DateTime
+  usedAt       DateTime?
+  revokedAt    DateTime?
+  revokedReason String?
+  replacedById String?   @db.Uuid
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+model Notification {
+  id           String              @id @default(uuid()) @db.Uuid
+  userId       String              @db.Uuid
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  message      String              @db.Text
+  type         NotificationType    @default(INFO)
+  channel      NotificationChannel @default(IN_APP)
+  category     String
+  read         Boolean             @default(false)
+  readAt       DateTime?
+  actionUrl    String?
+  actionLabel  String?
+  metadata     Json                @default("{}")
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  createdAt    DateTime            @default(now())
+
+  @@index([userId, read])
+  @@index([category])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+
+model Setting {
+  id             String      @id @default(uuid()) @db.Uuid
+  key            String      @unique
+  value          Json
+  type           ConfigType  @default(STRING)
+  description    String?
+  category       String      @default("general")
+  isPublic       Boolean     @default(false)
+  organizationId String?     @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedById    String?     @db.Uuid
+  updatedBy      User?       @relation("SettingCreator", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([organizationId])
+  @@index([category])
+  @@index([isPublic])
+  @@map("settings")
+}
+
+// ============================================================
+// HEALTH CHECKS
+// ============================================================
+
+model HealthCheck {
+  id           String       @id @default(uuid()) @db.Uuid
+  serviceName  String
+  serviceType  String
+  status       HealthStatus @default(HEALTHY)
+  latencyMs    Int          @default(0)
+  details      Json         @default("{}")
+  errorMessage String?
+  checkedAt    DateTime     @default(now())
+
+  @@index([serviceName, checkedAt])
+  @@index([status])
+  @@map("health_checks")
+}
+
+// ============================================================
+// SYSTEM CONFIGS
+// ============================================================
+
+model SystemConfig {
+  id          String     @id @default(uuid()) @db.Uuid
+  key         String     @unique
+  value       String     @db.Text
+  type        ConfigType @default(STRING)
+  description String?
+  category    String     @default("system")
+  isSensitive Boolean    @default(false)
+  isReadOnly  Boolean    @default(false)
+  updatedById String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([category])
+  @@map("system_configs")
+}
+// ============================================================
+// LITELLM INTEGRATION — ENUMS (Phase 3)
+// ============================================================
+
+enum ProviderType {
+  OPENAI
+  ANTHROPIC
+  GOOGLE
+  MISTRAL
+  COHERE
+  AZURE
+  AWS
+  HUGGINGFACE
+  OPENROUTER
+  NVIDIA
+  CUSTOM
+}
+
+enum ProviderConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  UNKNOWN
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum SyncEntityType {
+  PROVIDERS
+  MODELS
+  CAPABILITIES
+  METADATA
+  VERSIONS
+  ALL
+}
+
+enum CircuitBreakerState {
+  CLOSED
+  OPEN
+  HALF_OPEN
+}
+
+enum HealthCheckType {
+  LIVENESS
+  READINESS
+  FULL
+}
+
+// ============================================================
+// LITELLM INTEGRATION — TABLES (Phase 3)
+// ============================================================
+
+// 1. PROVIDERS — cached view of providers known to LiteLLM
+model Provider {
+  id              String   @id @default(uuid()) @db.Uuid
+  litellmId       String   @unique
+  name            String
+  slug            String   @unique
+  type            ProviderType @default(CUSTOM)
+  description     String?  @db.Text
+  baseUrl         String?
+  status          ProviderConnectionStatus @default(UNKNOWN)
+  isActive        Boolean  @default(true)
+  supportedFeatures String[] @default([])
+  region          String?
+  lastSyncedAt    DateTime?
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  connections     ProviderConnection[]
+  configurations  ProviderConfiguration[]
+  healthChecks    ProviderHealth[]
+  statistics      ProviderStatistic[]
+  metrics         ProviderMetric[]
+  modelCache      ModelCache[]
+
+  @@index([type])
+  @@index([status])
+  @@index([isActive])
+  @@map("litellm_providers")
+}
+
+// 2. PROVIDER_CONNECTIONS — connection config & state
+model ProviderConnection {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  alias         String
+  baseUrl       String
+  apiKeyMasked  String
+  apiKeyHash    String   @unique
+  headers       Json     @default("{}")
+  status        ProviderConnectionStatus @default(UNKNOWN)
+  lastConnectedAt DateTime?
+  lastError     String?  @db.Text
+  latencyMs     Int?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([providerId])
+  @@index([status])
+  @@map("litellm_provider_connections")
+}
+
+// 3. PROVIDER_CONFIGURATIONS — per-provider runtime config
+model ProviderConfiguration {
+  id           String   @id @default(uuid()) @db.Uuid
+  providerId   String   @db.Uuid
+  provider     Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  configKey    String
+  configValue  Json
+  configType   ConfigType @default(STRING)
+  description  String?
+  isSecret     Boolean  @default(false)
+  isReadonly   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([providerId, configKey])
+  @@index([providerId])
+  @@map("litellm_provider_configurations")
+}
+
+// 4. PROVIDER_HEALTH — time-series health records
+model ProviderHealth {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  status        HealthStatus @default(HEALTHY)
+  checkType     HealthCheckType @default(FULL)
+  latencyMs     Int      @default(0)
+  errorMessage  String?  @db.Text
+  details       Json     @default("{}")
+  circuitState  CircuitBreakerState @default(CLOSED)
+  checkedAt     DateTime @default(now())
+
+  @@index([providerId, checkedAt])
+  @@index([status])
+  @@map("litellm_provider_health")
+}
+
+// 5. PROVIDER_STATISTICS — aggregated stats per provider
+model ProviderStatistic {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  periodStart   DateTime
+  periodEnd     DateTime
+  requestCount  BigInt   @default(0) @db.BigInt
+  successCount  BigInt   @default(0) @db.BigInt
+  errorCount    BigInt   @default(0) @db.BigInt
+  tokenCount    BigInt   @default(0) @db.BigInt
+  inputTokens   BigInt   @default(0) @db.BigInt
+  outputTokens  BigInt   @default(0) @db.BigInt
+  totalCost     Decimal  @default(0) @db.Decimal(12, 6)
+  avgLatencyMs  Int      @default(0)
+  p50LatencyMs  Int      @default(0)
+  p95LatencyMs  Int      @default(0)
+  p99LatencyMs  Int      @default(0)
+  cacheHitRate  Decimal  @default(0) @db.Decimal(5, 4)
+  createdAt     DateTime @default(now())
+
+  @@unique([providerId, periodStart, periodEnd])
+  @@index([providerId])
+  @@index([periodStart])
+  @@map("litellm_provider_statistics")
+}
+
+// 6. PROVIDER_METRICS — real-time / short-window metrics
+model ProviderMetric {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  metricName    String
+  metricValue   Float
+  metricUnit    String?
+  labels        Json     @default("{}")
+  recordedAt    DateTime @default(now())
+
+  @@index([providerId, metricName, recordedAt])
+  @@index([metricName])
+  @@map("litellm_provider_metrics")
+}
+
+// 7. MODEL_CACHE — cached view of models known to LiteLLM
+model ModelCache {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerId      String   @db.Uuid
+  provider        Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  modelName       String
+  litellmModelId  String
+  displayName     String
+  description     String?  @db.Text
+  contextWindow   Int?
+  maxOutput       Int?
+  inputPricePer1k Decimal? @db.Decimal(10, 6)
+  outputPricePer1k Decimal? @db.Decimal(10, 6)
+  capabilities    String[] @default([])
+  modalities      String[] @default([])
+  isActive        Boolean  @default(true)
+  metadata        Json     @default("{}")
+  lastSyncedAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([providerId, modelName])
+  @@index([providerId])
+  @@index([modelName])
+  @@index([isActive])
+  @@map("litellm_model_cache")
+}
+
+// 8. USAGE_COUNTERS — request/token/cost counters
+model UsageCounter {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String?  @db.Uuid
+  modelName     String
+  userId        String?  @db.Uuid
+  apiKeyId      String?  @db.Uuid
+  organizationId String? @db.Uuid
+  requestCount  BigInt   @default(0) @db.BigInt
+  tokenCount    BigInt   @default(0) @db.BigInt
+  inputTokens   BigInt   @default(0) @db.BigInt
+  outputTokens  BigInt   @default(0) @db.BigInt
+  cacheHits     BigInt   @default(0) @db.BigInt
+  cacheMisses   BigInt   @default(0) @db.BigInt
+  totalCost     Decimal  @default(0) @db.Decimal(12, 6)
+  errorCount    BigInt   @default(0) @db.BigInt
+  periodStart   DateTime
+  periodEnd     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([providerId, periodStart])
+  @@index([modelName])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("litellm_usage_counters")
+}
+
+// 9. SYNCHRONIZATION_HISTORY — audit of every sync run
+model SynchronizationHistory {
+  id              String      @id @default(uuid()) @db.Uuid
+  entityType      SyncEntityType
+  status          SyncStatus
+  startedAt       DateTime
+  completedAt     DateTime?
+  durationMs      Int         @default(0)
+  itemsProcessed  Int         @default(0)
+  itemsCreated    Int         @default(0)
+  itemsUpdated    Int         @default(0)
+  itemsDeleted    Int         @default(0)
+  itemsFailed     Int         @default(0)
+  triggeredBy     String      @default("system")
+  errorMessage    String?     @db.Text
+  details         Json        @default("{}")
+  createdAt       DateTime    @default(now())
+
+  @@index([entityType, status])
+  @@index([startedAt])
+  @@index([status])
+  @@map("litellm_sync_history")
+}
+
+// ============================================================
+// PHASE 4: PROVIDER MANAGEMENT TABLES
+// ============================================================
+
+enum ValidationStatus {
+  VALID
+  INVALID
+  EXPIRED
+  DISABLED
+  QUOTA_EXCEEDED
+  BILLING_REQUIRED
+  RATE_LIMITED
+  REGION_BLOCKED
+  ORG_REQUIRED
+  PERMISSION_DENIED
+  UNSUPPORTED_MODEL
+  UNSUPPORTED_ENDPOINT
+  UNSUPPORTED_PARAMS
+  INTERNAL_ERROR
+  NETWORK_ERROR
+  TIMEOUT
+  UNKNOWN
+}
+
+enum DiscoveryStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// Provider registry entries — catalog of all supported providers
+model ProviderRegistryEntry {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  slug            String   @unique
+  displayName     String
+  description     String?  @db.Text
+  type            ProviderType
+  websiteUrl      String?
+  docsUrl         String?
+  logoUrl         String?
+  isSystem        Boolean  @default(true)
+  isEnabled       Boolean  @default(true)
+  supportedFeatures String[] @default([])
+  supportedCapabilities String[] @default([])
+  defaultModels   String[] @default([])
+  apiVersion      String?
+  authType        String   @default("bearer")
+  rateLimitInfo   Json     @default("{}")
+  pricingInfo     Json     @default("{}")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([type])
+  @@index([isEnabled])
+  @@map("provider_registry")
+}
+
+// API key validation records — real validation results
+model ApiKeyValidation {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerName    String
+  apiKeyMasked    String
+  apiKeyHash      String   @unique
+  status          ValidationStatus @default(UNKNOWN)
+  httpStatus      Int?
+  providerError   String?
+  providerCode    String?
+  providerMessage String?
+  requestId       String?
+  retryAfter      Int?
+  latencyMs       Int      @default(0)
+  validatedModels String[] @default([])
+  detectedQuota   Json     @default("{}")
+  detectedRateLimit Json   @default("{}")
+  isValid         Boolean  @default(false)
+  errorMessage    String?  @db.Text
+  validatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([providerName])
+  @@index([status])
+  @@index([validatedAt])
+  @@map("api_key_validations")
+}
+
+// Provider discovery results — auto-detected capabilities
+model ProviderDiscoveryResult {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerName    String   @unique
+  status          DiscoveryStatus @default(PENDING)
+  apiVersion      String?
+  availableModels Json     @default("[]")
+  capabilities    Json     @default("{}")
+  detectedFeatures String[] @default([])
+  visionSupport   Boolean  @default(false)
+  imageSupport    Boolean  @default(false)
+  audioSupport    Boolean  @default(false)
+  speechSupport   Boolean  @default(false)
+  embeddingsSupport Boolean @default(false)
+  moderationSupport Boolean @default(false)
+  functionCallingSupport Boolean @default(false)
+  streamingSupport Boolean @default(false)
+  jsonModeSupport Boolean  @default(false)
+  thinkingSupport Boolean  @default(false)
+  reasoningSupport Boolean @default(false)
+  toolCallingSupport Boolean @default(false)
+  structuredOutputSupport Boolean @default(false)
+  errorMessage    String?  @db.Text
+  discoveredAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([providerName])
+  @@index([status])
+  @@map("provider_discovery_results")
+}
+
+// Provider analytics — aggregated analytics per provider
+model ProviderAnalytic {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerName    String
+  periodStart     DateTime
+  periodEnd       DateTime
+  totalRequests   BigInt   @default(0) @db.BigInt
+  successfulRequests BigInt @default(0) @db.BigInt
+  failedRequests  BigInt   @default(0) @db.BigInt
+  totalTokens     BigInt   @default(0) @db.BigInt
+  inputTokens     BigInt   @default(0) @db.BigInt
+  outputTokens    BigInt   @default(0) @db.BigInt
+  totalCost       Decimal  @default(0) @db.Decimal(12, 6)
+  avgLatencyMs    Int      @default(0)
+  p50LatencyMs    Int      @default(0)
+  p95LatencyMs    Int      @default(0)
+  p99LatencyMs    Int      @default(0)
+  successRate     Decimal  @default(0) @db.Decimal(5, 4)
+  errorRate       Decimal  @default(0) @db.Decimal(5, 4)
+  cacheHitRate    Decimal  @default(0) @db.Decimal(5, 4)
+  topModels       Json     @default("[]")
+  topErrors       Json     @default("[]")
+  createdAt       DateTime @default(now())
+
+  @@unique([providerName, periodStart, periodEnd])
+  @@index([providerName])
+  @@index([periodStart])
+  @@map("provider_analytics")
+}
+
+// Provider logs — per-request logs for provider interactions
+model ProviderLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerName    String
+  modelName       String
+  endpoint        String
+  method          String
+  requestStatus   Int
+  durationMs      Int      @default(0)
+  tokenCount      Int      @default(0)
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  cost            Decimal  @default(0) @db.Decimal(10, 6)
+  errorMessage    String?  @db.Text
+  errorCode       String?
+  requestId       String?
+  userId          String?  @db.Uuid
+  apiKeyId        String?  @db.Uuid
+  organizationId  String?  @db.Uuid
+  isStreaming     Boolean  @default(false)
+  isCached        Boolean  @default(false)
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+
+  @@index([providerName, createdAt])
+  @@index([modelName])
+  @@index([requestStatus])
+  @@index([userId])
+  @@map("provider_logs")
+}
+
+// ============================================================
+// PHASE 5: PLAYGROUND TABLES
+// ============================================================
+
+enum ConversationType {
+  CHAT
+  COMPLETION
+  RESPONSES
+  EMBEDDINGS
+  IMAGES
+  VISION
+  SPEECH_TO_TEXT
+  TEXT_TO_SPEECH
+  AUDIO_TRANSLATION
+  MODERATION
+}
+
+// Playground conversations
+model PlaygroundConversation {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  title           String   @default("New Conversation")
+  type            ConversationType @default(CHAT)
+  providerName    String?
+  modelName       String?
+  systemPrompt    String?  @db.Text
+  parameters      Json     @default("{}")
+  messages        Json     @default("[]")
+  isPinned        Boolean  @default(false)
+  isArchived      Boolean  @default(false)
+  tokenCount      Int      @default(0)
+  totalCost       Decimal  @default(0) @db.Decimal(10, 6)
+  messageCount    Int      @default(0)
+  lastMessageAt   DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, isArchived])
+  @@index([userId, isPinned])
+  @@index([updatedAt])
+  @@map("playground_conversations")
+}
+
+// Saved prompts — reusable prompt templates
+model SavedPrompt {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  title           String
+  description     String?  @db.Text
+  content         String   @db.Text
+  systemPrompt    String?  @db.Text
+  providerName    String?
+  modelName       String?
+  parameters      Json     @default("{}")
+  isFavorite      Boolean  @default(false)
+  isPublic        Boolean  @default(false)
+  tags            String[] @default([])
+  collectionId    String?  @db.Uuid
+  useCount        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, isFavorite])
+  @@index([collectionId])
+  @@index([isPublic])
+  @@map("saved_prompts")
+}
+
+// Prompt collections — groups of saved prompts
+model PromptCollection {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  name            String
+  description     String?  @db.Text
+  isPublic        Boolean  @default(false)
+  color           String?
+  promptCount     Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isPublic])
+  @@map("prompt_collections")
+}
+
+// ============================================================
+// PHASE 6: OPERATIONS, BILLING & MONITORING TABLES
+// ============================================================
+
+enum BillingPlanInterval {
+  MONTHLY
+  YEARLY
+  LIFETIME
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  PAUSED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  PAID
+  OVERDUE
+  VOID
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+  SUPPRESSED
+}
+
+enum ReportType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum ReportFormat {
+  CSV
+  EXCEL
+  PDF
+  JSON
+}
+
+enum ReportStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+  EXPIRED
+}
+
+enum JobType {
+  CLEANUP
+  STATISTICS
+  AGGREGATION
+  SYNCHRONIZATION
+  HEALTH_CHECK
+  COST_CALCULATION
+  USAGE_CALCULATION
+  REPORT_GENERATION
+  ALERT_EVALUATION
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+// ============================================================
+// BILLING
+// ============================================================
+
+model BillingPlan {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  slug            String   @unique
+  description     String?  @db.Text
+  price           Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+  interval        BillingPlanInterval @default(MONTHLY)
+  trialDays       Int      @default(0)
+  features        String[] @default([])
+  limits          Json     @default("{}")
+  isPublic        Boolean  @default(true)
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subscriptions   Subscription[]
+  coupons         Coupon[]
+
+  @@index([isActive])
+  @@index([isPublic])
+  @@map("billing_plans")
+}
+
+model Subscription {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @db.Uuid
+  planId          String   @db.Uuid
+  plan            BillingPlan @relation(fields: [planId], references: [id])
+  status          SubscriptionStatus @default(TRIALING)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  trialEnd           DateTime?
+  canceledAt         DateTime?
+  cancelAtPeriodEnd  Boolean @default(false)
+  quantity           Int     @default(1)
+  metadata           Json    @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoices        Invoice[]
+  usageLimits     UsageLimit[]
+  credits         Credit[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model UsageLimit {
+  id              String   @id @default(uuid()) @db.Uuid
+  subscriptionId  String   @db.Uuid
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  resource        String   // e.g., "requests", "tokens", "cost"
+  limit           BigInt   @db.BigInt
+  used            BigInt   @default(0) @db.BigInt
+  period          String   @default("monthly")
+  periodStart     DateTime
+  periodEnd       DateTime
+  exceeded        Boolean  @default(false)
+  exceededAt      DateTime?
+  resetAt         DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([subscriptionId, resource, period])
+  @@index([subscriptionId])
+  @@index([exceeded])
+  @@map("usage_limits")
+}
+
+model Credit {
+  id              String   @id @default(uuid()) @db.Uuid
+  subscriptionId  String?  @db.Uuid
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  organizationId  String?  @db.Uuid
+  userId          String?  @db.Uuid
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+  balance         Decimal  @db.Decimal(10, 2)
+  type            String   @default("prepaid")
+  expiresAt       DateTime?
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("credits")
+}
+
+model Invoice {
+  id              String   @id @default(uuid()) @db.Uuid
+  number          String   @unique
+  subscriptionId  String?  @db.Uuid
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  organizationId  String   @db.Uuid
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+  tax             Decimal  @default(0) @db.Decimal(10, 2)
+  discount        Decimal  @default(0) @db.Decimal(10, 2)
+  total           Decimal  @db.Decimal(10, 2)
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime
+  dueDate         DateTime
+  paidDate        DateTime?
+  periodStart     DateTime
+  periodEnd       DateTime
+  lineItems       Json     @default("[]")
+  notes           String?  @db.Text
+  pdfUrl          String?
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  payments        Payment[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+model Payment {
+  id              String   @id @default(uuid()) @db.Uuid
+  invoiceId       String?  @db.Uuid
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+  organizationId  String   @db.Uuid
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+  status          PaymentStatus @default(PENDING)
+  method          String   @default("card")
+  provider        String   @default("stripe")
+  providerPaymentId String?
+  failureReason   String?  @db.Text
+  processedAt     DateTime?
+  refundedAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([invoiceId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Coupon {
+  id              String   @id @default(uuid()) @db.Uuid
+  code            String   @unique
+  description     String?
+  planId          String?  @db.Uuid
+  plan            BillingPlan? @relation(fields: [planId], references: [id])
+  discountType    String   @default("percentage") // "percentage" or "fixed"
+  discountValue   Decimal  @db.Decimal(10, 2)
+  maxRedemptions  Int?
+  redeemedCount   Int      @default(0)
+  validFrom       DateTime
+  validUntil      DateTime?
+  isActive        Boolean  @default(true)
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+  @@map("coupons")
+}
+
+// ============================================================
+// ANALYTICS & USAGE
+// ============================================================
+
+model UsageRecord {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String?  @db.Uuid
+  userId          String?  @db.Uuid
+  apiKeyId        String?  @db.Uuid
+  providerName    String
+  modelName       String
+  endpoint        String
+  method          String
+  requestCount    Int      @default(1)
+  responseCount   Int      @default(0)
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  cachedTokens    Int      @default(0)
+  totalTokens     Int      @default(0)
+  streamingSessions Int    @default(0)
+  imageCount      Int      @default(0)
+  embeddingCount  Int      @default(0)
+  speechCount     Int      @default(0)
+  visionCount     Int      @default(0)
+  moderationCount Int      @default(0)
+  cost            Decimal  @default(0) @db.Decimal(10, 6)
+  estimatedCost   Decimal  @default(0) @db.Decimal(10, 6)
+  realCost        Decimal  @default(0) @db.Decimal(10, 6)
+  latencyMs       Int      @default(0)
+  errorCount      Int      @default(0)
+  successCount    Int      @default(0)
+  periodStart     DateTime
+  periodEnd       DateTime
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId, periodStart])
+  @@index([providerName, periodStart])
+  @@index([modelName, periodStart])
+  @@index([userId])
+  @@index([periodStart])
+  @@map("usage_records")
+}
+
+model CostSummary {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String?  @db.Uuid
+  userId          String?  @db.Uuid
+  projectId       String?  @db.Uuid
+  providerName    String?
+  modelName       String?
+  periodType      String   @default("daily") // daily, monthly, yearly
+  periodStart     DateTime
+  periodEnd       DateTime
+  totalCost       Decimal  @default(0) @db.Decimal(10, 6)
+  estimatedCost   Decimal  @default(0) @db.Decimal(10, 6)
+  realCost        Decimal  @default(0) @db.Decimal(10, 6)
+  requestCount    BigInt   @default(0) @db.BigInt
+  tokenCount      BigInt   @default(0) @db.BigInt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, providerName, modelName, periodType, periodStart])
+  @@index([organizationId])
+  @@index([periodStart])
+  @@map("cost_summaries")
+}
+
+// ============================================================
+// MONITORING & ALERTS
+// ============================================================
+
+model SystemMetric {
+  id              String   @id @default(uuid()) @db.Uuid
+  metricName      String
+  metricValue     Float
+  metricUnit      String?
+  labels          Json     @default("{}")
+  source          String   @default("internal") // internal, prometheus, grafana, uptime-kuma
+  recordedAt      DateTime @default(now())
+
+  @@index([metricName, recordedAt])
+  @@index([source])
+  @@map("system_metrics")
+}
+
+model Alert {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  description     String?  @db.Text
+  severity        AlertSeverity @default(WARNING)
+  status          AlertStatus @default(ACTIVE)
+  type            String   // provider_down, slow_provider, high_latency, etc.
+  source          String   @default("system")
+  resourceName    String?
+  resourceId      String?
+  currentValue    String?
+  threshold       String?
+  message         String   @db.Text
+  acknowledgedBy  String?  @db.Uuid
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  resolvedBy      String?  @db.Uuid
+  resolvedReason  String?  @db.Text
+  notifications   Json     @default("{}")
+  metadata        Json     @default("{}")
+  triggeredAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([severity])
+  @@index([type, status])
+  @@index([triggeredAt])
+  @@map("alerts")
+}
+
+model AlertRule {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  description     String?  @db.Text
+  type            String
+  severity        AlertSeverity @default(WARNING)
+  isEnabled       Boolean  @default(true)
+  metric          String
+  condition       String   // gt, lt, gte, lte, eq, neq
+  threshold       Float
+  windowMinutes   Int      @default(5)
+  cooldownMinutes Int      @default(30)
+  lastTriggeredAt DateTime?
+  triggerCount    Int      @default(0)
+  actions         Json     @default("[]") // notify, webhook, auto-resolve
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isEnabled])
+  @@index([type])
+  @@map("alert_rules")
+}
+
+// ============================================================
+// REPORTING
+// ============================================================
+
+model Report {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  type            ReportType
+  format          ReportFormat @default(CSV)
+  status          ReportStatus @default(PENDING)
+  organizationId  String?  @db.Uuid
+  requestedBy     String   @db.Uuid
+  periodStart     DateTime
+  periodEnd       DateTime
+  filters         Json     @default("{}")
+  fileUrl         String?
+  fileSize        BigInt   @default(0) @db.BigInt
+  rowCount        Int      @default(0)
+  errorMessage    String?  @db.Text
+  generatedAt     DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([type])
+  @@map("reports")
+}
+
+model ScheduledReport {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  type            ReportType
+  format          ReportFormat @default(CSV)
+  organizationId  String?  @db.Uuid
+  recipientEmails String[] @default([])
+  cronExpression  String
+  isActive        Boolean  @default(true)
+  lastRunAt       DateTime?
+  nextRunAt       DateTime?
+  filters         Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([isActive])
+  @@map("scheduled_reports")
+}
+
+// ============================================================
+// BACKGROUND JOBS
+// ============================================================
+
+model JobRecord {
+  id              String   @id @default(uuid()) @db.Uuid
+  type            JobType
+  status          JobStatus @default(PENDING)
+  name            String
+  payload         Json     @default("{}")
+  result          Json     @default("{}")
+  errorMessage    String?  @db.Text
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationMs      Int      @default(0)
+  triggeredBy     String   @default("system")
+  retryCount      Int      @default(0)
+  maxRetries      Int      @default(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([type, status])
+  @@index([status])
+  @@index([createdAt])
+  @@map("job_records")
+}
+
+// ============================================================
+// ADMIN SETTINGS
+// ============================================================
+
+model AdminSetting {
+  id              String   @id @default(uuid()) @db.Uuid
+  category        String   // system, provider, billing, monitoring, notification
+  key             String   @unique
+  value           Json
+  type            ConfigType @default(JSON)
+  description     String?
+  isEncrypted     Boolean  @default(false)
+  isReadOnly      Boolean  @default(false)
+  isPublic        Boolean  @default(false)
+  updatedById     String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+  @@index([isPublic])
+  @@map("admin_settings")
+}
+
+// ============================================================
+// SECURITY — ENCRYPTED SECRETS
+// ============================================================
+
+model EncryptedSecret {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique
+  encryptedValue  String   @db.Text
+  iv              String
+  authTag         String
+  description     String?
+  category        String   @default("general")
+  rotatedAt       DateTime?
+  rotateAfterDays Int?
+  createdBy       String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+  @@map("encrypted_secrets")
+}

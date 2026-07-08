@@ -1,0 +1,53 @@
+import { ServiceUnavailableException } from "@nestjs/common";
+import type { LiteLLMConfig } from "./litellm.types";
+import type { LiteLLMHealthResponse, LiteLLMLivenessResponse, LiteLLMReadinessResponse, LiteLLMModelListResponse, LiteLLMVersionResponse, LiteLLMReloadResponse, LiteLLMMetricsSummary, LiteLLMStatus, SyncEntityType, LiteLLMSyncResult } from "./litellm.types";
+import type { LiteLLMClient } from "./litellm.client";
+import { LiteLLMParser } from "./litellm.parser";
+import { LiteLLMCache } from "./litellm.cache";
+import type { LiteLLMRepository } from "./litellm.repository";
+import { LiteLLMCircuitBreaker } from "./litellm.circuit-breaker";
+import { LiteLLMConnectionPool } from "./litellm.connection-pool";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+export declare class LiteLLMService {
+    private readonly config;
+    private readonly client;
+    private readonly parser;
+    private readonly cache;
+    private readonly repo;
+    private readonly breaker;
+    private readonly pool;
+    private readonly prisma;
+    private readonly logger;
+    constructor(config: LiteLLMConfig, client: LiteLLMClient, parser: LiteLLMParser, cache: LiteLLMCache, repo: LiteLLMRepository, breaker: LiteLLMCircuitBreaker, pool: LiteLLMConnectionPool, prisma: PrismaService);
+    getHealth(): Promise<LiteLLMHealthResponse>;
+    getLiveness(): Promise<LiteLLMLivenessResponse>;
+    getReadiness(): Promise<LiteLLMReadinessResponse>;
+    getVersion(): Promise<LiteLLMVersionResponse>;
+    getModels(): Promise<LiteLLMModelListResponse>;
+    reload(): Promise<LiteLLMReloadResponse>;
+    sync(entityType?: SyncEntityType, triggeredBy?: string): Promise<LiteLLMSyncResult>;
+    private syncAll;
+    private syncProviders;
+    private syncModels;
+    private syncCapabilities;
+    private syncMetadata;
+    private syncVersions;
+    getMetrics(): Promise<LiteLLMMetricsSummary>;
+    getStatus(): Promise<LiteLLMStatus>;
+    runScheduledHealthCheck(): Promise<void>;
+    runScheduledSync(): Promise<void>;
+    getConfig(): LiteLLMConfig;
+    getCircuitBreakerStates(): {
+        key: string;
+        state: import("./litellm.types").CircuitBreakerState;
+        failureCount: number;
+        lastFailureAt: string | null;
+    }[];
+    getConnectionPoolStats(): {
+        active: number;
+        idle: number;
+        max: number;
+        waiting: number;
+    };
+    static unavailable(message: string): ServiceUnavailableException;
+}

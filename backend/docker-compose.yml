@@ -1,0 +1,115 @@
+# ============================================================
+# Moataz AI Gateway — Docker Compose (Full Stack)
+# ============================================================
+# Starts: PostgreSQL, Redis, Backend API
+# Usage:  docker compose up -d
+#         docker compose up -d --build  (rebuild after code changes)
+# Tear down: docker compose down -v   (also removes data volumes)
+
+version: "3.9"
+
+services:
+  # -------------------- PostgreSQL --------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: moataz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moataz
+      POSTGRES_PASSWORD: moataz_password
+      POSTGRES_DB: moataz
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moataz -d moataz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - moataz-network
+
+  # -------------------- Redis --------------------
+  redis:
+    image: redis:7-alpine
+    container_name: moataz-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - moataz-network
+
+  # -------------------- Backend API --------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moataz-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://moataz:moataz_password@postgres:5432/moataz?schema=public
+      DIRECT_URL: postgresql://moataz:moataz_password@postgres:5432/moataz?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_KEY_PREFIX: "moataz:"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-please_change_me_to_a_64_char_random_hex_string}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-please_change_me_to_another_64_char_hex_string}
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 30d
+      JWT_ISSUER: moataz-ai-gateway
+      JWT_AUDIENCE: moataz-ai-gateway-users
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-please_change_me_to_32_char_secret}
+      BCRYPT_ROUNDS: 12
+      COOKIE_SECRET: ${COOKIE_SECRET:-please_change_me_to_32_char_secret}
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      RATE_LIMIT_TTL: 60
+      RATE_LIMIT_LIMIT: 100
+      API_KEY_PREFIX: nx
+      QUEUE_PREFIX: moataz
+      QUEUE_CONCURRENCY: 5
+      SWAGGER_PATH: api/docs
+      SWAGGER_ENABLED: "true"
+      LOG_LEVEL: info
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - moataz-network
+    command: sh -c "bunx prisma migrate deploy && node dist/main.js"
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  moataz-network:
+    driver: bridge

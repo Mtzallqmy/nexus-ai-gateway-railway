@@ -1,0 +1,156 @@
+/**
+ * LiteLLM Module — Interfaces
+ *
+ * Abstract interfaces that the implementations conform to.
+ * Useful for testing (mocks) and future swaps (e.g. alternative gateways).
+ */
+
+import type { LiteLLMConfig } from "./litellm.types";
+import type {
+  LiteLLMChatCompletionRequest,
+  LiteLLMChatCompletionResponse,
+  LiteLLMChatCompletionChunk,
+  LiteLLMHealthResponse,
+  LiteLLMLivenessResponse,
+  LiteLLMReadinessResponse,
+  LiteLLMModelListResponse,
+  LiteLLMVersionResponse,
+  LiteLLMReloadResponse,
+} from "./litellm.types";
+
+// ============================================================
+// ILiteLLMClient — HTTP client that talks to the LiteLLM proxy
+// ============================================================
+export interface ILiteLLMClient {
+  getModels(): Promise<LiteLLMModelListResponse>;
+  getVersion(): Promise<LiteLLMVersionResponse>;
+  getHealthLiveness(): Promise<LiteLLMLivenessResponse>;
+  getHealthReadiness(): Promise<LiteLLMReadinessResponse>;
+  getHealthFull(): Promise<LiteLLMHealthResponse>;
+  reload(): Promise<LiteLLMReloadResponse>;
+  chatCompletion(
+    req: LiteLLMChatCompletionRequest
+  ): Promise<LiteLLMChatCompletionResponse>;
+  chatCompletionStream(
+    req: LiteLLMChatCompletionRequest
+  ): AsyncIterable<LiteLLMChatCompletionChunk>;
+  embeddings(
+    model: string,
+    input: string | string[]
+  ): Promise<unknown>;
+}
+
+// ============================================================
+// ILiteLLMRepository — Data access abstraction over Prisma
+// ============================================================
+export interface ILiteLLMRepository {
+  // Providers
+  upsertProvider(data: Record<string, unknown>): Promise<unknown>;
+  findProviders(filter?: Record<string, unknown>): Promise<unknown[]>;
+  findProviderById(id: string): Promise<unknown | null>;
+
+  // Models
+  upsertModel(data: Record<string, unknown>): Promise<unknown>;
+  findModels(filter?: Record<string, unknown>): Promise<unknown[]>;
+  deleteStaleModels(activeIds: string[]): Promise<number>;
+
+  // Sync history
+  recordSync(data: Record<string, unknown>): Promise<unknown>;
+  findSyncHistory(filter?: Record<string, unknown>, limit?: number): Promise<unknown[]>;
+
+  // Health
+  recordHealthCheck(data: Record<string, unknown>): Promise<unknown>;
+  findLatestHealth(providerId: string): Promise<unknown | null>;
+
+  // Metrics
+  recordMetric(data: Record<string, unknown>): Promise<unknown>;
+  aggregateMetrics(providerId?: string): Promise<unknown>;
+
+  // Usage counters
+  incrementUsage(data: Record<string, unknown>): Promise<void>;
+}
+
+// ============================================================
+// ILiteLLMCache — Cache abstraction (backed by RedisService)
+// ============================================================
+export interface ILiteLLMCache {
+  get<T>(key: string): Promise<T | null>;
+  set<T>(key: string, value: T, ttlSeconds?: number): Promise<void>;
+  del(...keys: string[]): Promise<number>;
+  flushPattern(pattern: string): Promise<number>;
+}
+
+// ============================================================
+// ILiteLLMRouter — Routes requests through the LiteLLM proxy
+// ============================================================
+export interface ILiteLLMRouter {
+  routeChatCompletion(req: LiteLLMChatCompletionRequest): Promise<LiteLLMChatCompletionResponse>;
+  routeChatCompletionStream(req: LiteLLMChatCompletionRequest): AsyncIterable<LiteLLMChatCompletionChunk>;
+  routeEmbeddings(model: string, input: string | string[]): Promise<unknown>;
+}
+
+// ============================================================
+// ILiteLLMHealthChecker — Periodically probes LiteLLM
+// ============================================================
+export interface ILiteLLMHealthChecker {
+  checkLiveness(): Promise<LiteLLMLivenessResponse>;
+  checkReadiness(): Promise<LiteLLMReadinessResponse>;
+  checkFull(): Promise<LiteLLMHealthResponse>;
+}
+
+// ============================================================
+// ILiteLLMMetricsCollector — Collects and aggregates metrics
+// ============================================================
+export interface ILiteLLMMetricsCollector {
+  collect(): Promise<unknown>;
+  getSummary(): Promise<unknown>;
+  recordProviderMetric(providerId: string, name: string, value: number, unit?: string): Promise<void>;
+}
+
+// ============================================================
+// ILiteLLMSyncService — Synchronizes providers/models from LiteLLM
+// ============================================================
+export interface ILiteLLMSyncService {
+  syncAll(triggeredBy?: string): Promise<unknown>;
+  syncProviders(triggeredBy?: string): Promise<unknown>;
+  syncModels(triggeredBy?: string): Promise<unknown>;
+  syncCapabilities(triggeredBy?: string): Promise<unknown>;
+  syncMetadata(triggeredBy?: string): Promise<unknown>;
+  syncVersions(triggeredBy?: string): Promise<unknown>;
+  getSyncHistory(limit?: number): Promise<unknown[]>;
+}
+
+// ============================================================
+// ICircuitBreaker — Per-provider circuit breaker
+// ============================================================
+export interface ICircuitBreaker {
+  getState(providerKey: string): "CLOSED" | "OPEN" | "HALF_OPEN";
+  recordSuccess(providerKey: string): void;
+  recordFailure(providerKey: string): boolean; // returns true if circuit just opened
+  isOpen(providerKey: string): boolean;
+  reset(providerKey?: string): void;
+  getAll(): Array<{ key: string; state: "CLOSED" | "OPEN" | "HALF_OPEN"; failureCount: number; lastFailureAt: string | null }>;
+}
+
+// ============================================================
+// IRetryPolicy — Calculates retry delays and whether to retry
+// ============================================================
+export interface IRetryPolicy {
+  shouldRetry(attempt: number, error: unknown): boolean;
+  getDelay(attempt: number): number;
+  getMaxAttempts(): number;
+}
+
+// ============================================================
+// IConnectionPool — Pool of reusable HTTP agents
+// ============================================================
+export interface IConnectionPool {
+  acquire(): Promise<unknown>;
+  release(resource: unknown): void;
+  getStats(): { active: number; idle: number; max: number; waiting: number };
+}
+
+// ============================================================
+// CONFIG FACTORY TYPE
+// ============================================================
+export type LiteLLMConfigFactory = () => LiteLLMConfig;

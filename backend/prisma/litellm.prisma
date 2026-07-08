@@ -1,0 +1,271 @@
+// ============================================================
+// LITELLM INTEGRATION — ENUMS (Phase 3)
+// ============================================================
+
+enum ProviderType {
+  OPENAI
+  ANTHROPIC
+  GOOGLE
+  MISTRAL
+  COHERE
+  AZURE
+  AWS
+  HUGGINGFACE
+  OPENROUTER
+  NVIDIA
+  CUSTOM
+}
+
+enum ProviderConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  UNKNOWN
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum SyncEntityType {
+  PROVIDERS
+  MODELS
+  CAPABILITIES
+  METADATA
+  VERSIONS
+  ALL
+}
+
+enum CircuitBreakerState {
+  CLOSED
+  OPEN
+  HALF_OPEN
+}
+
+enum HealthCheckType {
+  LIVENESS
+  READINESS
+  FULL
+}
+
+// ============================================================
+// LITELLM INTEGRATION — TABLES (Phase 3)
+// ============================================================
+
+// 1. PROVIDERS — cached view of providers known to LiteLLM
+model Provider {
+  id              String   @id @default(uuid()) @db.Uuid
+  litellmId       String   @unique
+  name            String
+  slug            String   @unique
+  type            ProviderType @default(CUSTOM)
+  description     String?  @db.Text
+  baseUrl         String?
+  status          ProviderConnectionStatus @default(UNKNOWN)
+  isActive        Boolean  @default(true)
+  supportedFeatures String[] @default([])
+  region          String?
+  lastSyncedAt    DateTime?
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  connections     ProviderConnection[]
+  configurations  ProviderConfiguration[]
+  healthChecks    ProviderHealth[]
+  statistics      ProviderStatistic[]
+  metrics         ProviderMetric[]
+  modelCache      ModelCache[]
+
+  @@index([type])
+  @@index([status])
+  @@index([isActive])
+  @@map("litellm_providers")
+}
+
+// 2. PROVIDER_CONNECTIONS — connection config & state
+model ProviderConnection {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  alias         String
+  baseUrl       String
+  apiKeyMasked  String
+  apiKeyHash    String   @unique
+  headers       Json     @default("{}")
+  status        ProviderConnectionStatus @default(UNKNOWN)
+  lastConnectedAt DateTime?
+  lastError     String?  @db.Text
+  latencyMs     Int?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([providerId])
+  @@index([status])
+  @@map("litellm_provider_connections")
+}
+
+// 3. PROVIDER_CONFIGURATIONS — per-provider runtime config
+model ProviderConfiguration {
+  id           String   @id @default(uuid()) @db.Uuid
+  providerId   String   @db.Uuid
+  provider     Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  configKey    String
+  configValue  Json
+  configType   ConfigType @default(STRING)
+  description  String?
+  isSecret     Boolean  @default(false)
+  isReadonly   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([providerId, configKey])
+  @@index([providerId])
+  @@map("litellm_provider_configurations")
+}
+
+// 4. PROVIDER_HEALTH — time-series health records
+model ProviderHealth {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  status        HealthStatus @default(HEALTHY)
+  checkType     HealthCheckType @default(FULL)
+  latencyMs     Int      @default(0)
+  errorMessage  String?  @db.Text
+  details       Json     @default("{}")
+  circuitState  CircuitBreakerState @default(CLOSED)
+  checkedAt     DateTime @default(now())
+
+  @@index([providerId, checkedAt])
+  @@index([status])
+  @@map("litellm_provider_health")
+}
+
+// 5. PROVIDER_STATISTICS — aggregated stats per provider
+model ProviderStatistic {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  periodStart   DateTime
+  periodEnd     DateTime
+  requestCount  BigInt   @default(0) @db.BigInt
+  successCount  BigInt   @default(0) @db.BigInt
+  errorCount    BigInt   @default(0) @db.BigInt
+  tokenCount    BigInt   @default(0) @db.BigInt
+  inputTokens   BigInt   @default(0) @db.BigInt
+  outputTokens  BigInt   @default(0) @db.BigInt
+  totalCost     Decimal  @default(0) @db.Decimal(12, 6)
+  avgLatencyMs  Int      @default(0)
+  p50LatencyMs  Int      @default(0)
+  p95LatencyMs  Int      @default(0)
+  p99LatencyMs  Int      @default(0)
+  cacheHitRate  Decimal  @default(0) @db.Decimal(5, 4)
+  createdAt     DateTime @default(now())
+
+  @@unique([providerId, periodStart, periodEnd])
+  @@index([providerId])
+  @@index([periodStart])
+  @@map("litellm_provider_statistics")
+}
+
+// 6. PROVIDER_METRICS — real-time / short-window metrics
+model ProviderMetric {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String   @db.Uuid
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  metricName    String
+  metricValue   Float
+  metricUnit    String?
+  labels        Json     @default("{}")
+  recordedAt    DateTime @default(now())
+
+  @@index([providerId, metricName, recordedAt])
+  @@index([metricName])
+  @@map("litellm_provider_metrics")
+}
+
+// 7. MODEL_CACHE — cached view of models known to LiteLLM
+model ModelCache {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerId      String   @db.Uuid
+  provider        Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  modelName       String
+  litellmModelId  String
+  displayName     String
+  description     String?  @db.Text
+  contextWindow   Int?
+  maxOutput       Int?
+  inputPricePer1k Decimal? @db.Decimal(10, 6)
+  outputPricePer1k Decimal? @db.Decimal(10, 6)
+  capabilities    String[] @default([])
+  modalities      String[] @default([])
+  isActive        Boolean  @default(true)
+  metadata        Json     @default("{}")
+  lastSyncedAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([providerId, modelName])
+  @@index([providerId])
+  @@index([modelName])
+  @@index([isActive])
+  @@map("litellm_model_cache")
+}
+
+// 8. USAGE_COUNTERS — request/token/cost counters
+model UsageCounter {
+  id            String   @id @default(uuid()) @db.Uuid
+  providerId    String?  @db.Uuid
+  modelName     String
+  userId        String?  @db.Uuid
+  apiKeyId      String?  @db.Uuid
+  organizationId String? @db.Uuid
+  requestCount  BigInt   @default(0) @db.BigInt
+  tokenCount    BigInt   @default(0) @db.BigInt
+  inputTokens   BigInt   @default(0) @db.BigInt
+  outputTokens  BigInt   @default(0) @db.BigInt
+  cacheHits     BigInt   @default(0) @db.BigInt
+  cacheMisses   BigInt   @default(0) @db.BigInt
+  totalCost     Decimal  @default(0) @db.Decimal(12, 6)
+  errorCount    BigInt   @default(0) @db.BigInt
+  periodStart   DateTime
+  periodEnd     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([providerId, periodStart])
+  @@index([modelName])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("litellm_usage_counters")
+}
+
+// 9. SYNCHRONIZATION_HISTORY — audit of every sync run
+model SynchronizationHistory {
+  id              String      @id @default(uuid()) @db.Uuid
+  entityType      SyncEntityType
+  status          SyncStatus
+  startedAt       DateTime
+  completedAt     DateTime?
+  durationMs      Int         @default(0)
+  itemsProcessed  Int         @default(0)
+  itemsCreated    Int         @default(0)
+  itemsUpdated    Int         @default(0)
+  itemsDeleted    Int         @default(0)
+  itemsFailed     Int         @default(0)
+  triggeredBy     String      @default("system")
+  errorMessage    String?     @db.Text
+  details         Json        @default("{}")
+  createdAt       DateTime    @default(now())
+
+  @@index([entityType, status])
+  @@index([startedAt])
+  @@index([status])
+  @@map("litellm_sync_history")
+}

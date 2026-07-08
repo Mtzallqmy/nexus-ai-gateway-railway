@@ -1,0 +1,30 @@
+import type { LiteLLMConfig } from "./litellm.types";
+import type { LiteLLMChatCompletionRequest, LiteLLMChatCompletionResponse, LiteLLMChatCompletionChunk, LiteLLMHealthResponse, LiteLLMLivenessResponse, LiteLLMReadinessResponse, LiteLLMModelListResponse, LiteLLMVersionResponse, LiteLLMReloadResponse } from "./litellm.types";
+import type { ILiteLLMClient } from "./litellm.interfaces";
+import { LiteLLMRetryPolicy } from "./litellm.retry-policy";
+import { LiteLLMCircuitBreaker } from "./litellm.circuit-breaker";
+import { LiteLLMConnectionPool } from "./litellm.connection-pool";
+export declare class LiteLLMClient implements ILiteLLMClient {
+    private readonly logger;
+    private readonly config;
+    private readonly retry;
+    private readonly breaker;
+    private readonly pool;
+    constructor(config: LiteLLMConfig, retry: LiteLLMRetryPolicy, breaker: LiteLLMCircuitBreaker, pool: LiteLLMConnectionPool);
+    getModels(): Promise<LiteLLMModelListResponse>;
+    getVersion(): Promise<LiteLLMVersionResponse>;
+    getHealthLiveness(): Promise<LiteLLMLivenessResponse>;
+    getHealthReadiness(): Promise<LiteLLMReadinessResponse>;
+    getHealthFull(): Promise<LiteLLMHealthResponse>;
+    reload(): Promise<LiteLLMReloadResponse>;
+    chatCompletion(req: LiteLLMChatCompletionRequest): Promise<LiteLLMChatCompletionResponse>;
+    chatCompletionStream(req: LiteLLMChatCompletionRequest): AsyncIterable<LiteLLMChatCompletionChunk>;
+    embeddings(model: string, input: string | string[]): Promise<unknown>;
+    generateImages(model: string, prompt: string, n?: number, size?: string): Promise<unknown>;
+    textToSpeech(model: string, input: string, voice: string): Promise<ArrayBuffer>;
+    moderate(model: string, input: string | string[]): Promise<unknown>;
+    private request;
+    private buildHeaders;
+    private buildHttpError;
+    private sleep;
+}
